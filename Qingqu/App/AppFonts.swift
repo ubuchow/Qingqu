@@ -11,12 +11,14 @@ enum AppFonts {
         "STZhongSong"
     ]
 
-    /// 方正小标宋简体（公文标题常用）
+    /// 方正公文小标宋（优先），回退方正小标宋简体
     private static let titleCandidates = [
+        "FZDXBS--GBK1-0",
+        "FZDocXiaoBiaoSong",
+        "方正公文小标宋",
         "FZXBSJW--GB1-0",
         "FZXiaoBiaoSong-B05S",
-        "方正小标宋简体",
-        "方正公文小标宋"
+        "方正小标宋简体"
     ]
 
     private static var didRegister = false

@@ -21,6 +21,11 @@ copy_font "$FONT_DIR/华文中宋.ttf" \
   "$HOME/Library/Fonts/STZhongsong.ttf" \
   "$HOME/tachikoma-ui/static/assets/fonts/STZhongsong.ttf" \
   || echo "warning: 华文中宋 not found; UI will fall back to system font" >&2
+copy_font "$FONT_DIR/方正公文小标宋.ttf" \
+  "$HOME/Library/Containers/com.kingsoft.wpsoffice.mac/Data/.kingsoft/office6/docerFonts/方正公文小标宋.TTF" \
+  "$HOME/Library/Fonts/方正公文小标宋.ttf" \
+  "$HOME/Library/Fonts/方正公文小标宋.TTF" \
+  || echo "warning: 方正公文小标宋 not found" >&2
 copy_font "$FONT_DIR/方正小标宋简体.ttf" \
   "$HOME/tachikoma-ui/static/assets/fonts/FZXiaoBiaoSong.ttf" \
   "$HOME/Library/Fonts/方正小标宋简体.ttf" \

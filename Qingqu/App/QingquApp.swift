@@ -6,7 +6,8 @@ struct QingquApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup {
+        // Single window — avoids Dock reopen creating a second WindowGroup instance.
+        Window("轻取", id: "main") {
             ContentView()
                 .environment(appDelegate.model)
         }
@@ -38,25 +39,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Dock / app-icon click. Always reuse the existing window; never open another.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if let window = sender.windows.first(where: { $0.isVisible }) {
-            window.makeKeyAndOrderFront(nil)
-        } else if let window = sender.windows.first {
-            window.makeKeyAndOrderFront(nil)
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        return true
+        showMainWindow(in: sender)
+        return false
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        collapseDuplicateWindows()
         model.adoptClipboardIfEmpty()
+    }
+
+    private func showMainWindow(in app: NSApplication) {
+        let windows = mainWindows(in: app)
+        if let main = windows.first {
+            main.makeKeyAndOrderFront(nil)
+            destroyDuplicates(windows.dropFirst())
+        }
+        app.activate(ignoringOtherApps: true)
+    }
+
+    private func collapseDuplicateWindows() {
+        let windows = mainWindows(in: NSApp)
+        guard windows.count > 1 else { return }
+        if let visible = windows.first(where: \.isVisible) ?? windows.first {
+            visible.makeKeyAndOrderFront(nil)
+            destroyDuplicates(windows.filter { $0 !== visible })
+        }
+    }
+
+    private func mainWindows(in app: NSApplication) -> [NSWindow] {
+        app.windows.filter { window in
+            !(window is NSPanel)
+                && window.contentView != nil
+                && (window.styleMask.contains(.titled) || window.styleMask.contains(.fullSizeContentView))
+        }
+    }
+
+    private func destroyDuplicates<S: Sequence>(_ windows: S) where S.Element == NSWindow {
+        for window in windows {
+            WindowCloser.shared.allowDestroy = true
+            window.delegate = nil
+            window.close()
+            WindowCloser.shared.allowDestroy = false
+        }
     }
 }
 
 final class WindowCloser: NSObject, NSWindowDelegate {
     static let shared = WindowCloser()
+    var allowDestroy = false
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if allowDestroy { return true }
         if sender.styleMask.contains(.fullScreen) {
             sender.toggleFullScreen(nil)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
@@ -64,6 +99,7 @@ final class WindowCloser: NSObject, NSWindowDelegate {
             }
             return false
         }
+        // Hide instead of destroy so Dock reopen can reuse this window.
         sender.orderOut(nil)
         return false
     }
@@ -106,7 +142,6 @@ struct WindowConfigurator: NSViewRepresentable {
                 window.styleMask.insert(.fullSizeContentView)
             }
             window.standardWindowButton(.zoomButton)?.isEnabled = true
-            // Ensure the window lands on a visible display.
             if let screen = NSScreen.main {
                 let size = NSSize(width: 440, height: 680)
                 let origin = NSPoint(

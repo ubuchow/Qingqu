@@ -5,9 +5,12 @@ import SwiftUI
 struct QingquApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        AppFonts.registerBundledFonts()
+    }
+
     var body: some Scene {
-        // Single window — avoids Dock reopen creating a second WindowGroup instance.
-        Window("轻取", id: "main") {
+        WindowGroup(id: "main") {
             ContentView()
                 .environment(appDelegate.model)
         }
@@ -31,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppFonts.registerBundledFonts()
         NSApp.setActivationPolicy(.regular)
         NSApp.appearance = nil
     }
@@ -39,10 +43,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Dock / app-icon click. Always reuse the existing window; never open another.
+    /// Dock click: reuse visible window, or let SwiftUI create exactly one if none remain.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showMainWindow(in: sender)
-        return false
+        let windows = mainWindows(in: sender)
+        if flag || windows.contains(where: \.isVisible) {
+            windows.filter(\.isVisible).forEach { $0.makeKeyAndOrderFront(nil) }
+            collapseDuplicateWindows()
+            sender.activate(ignoringOtherApps: true)
+            return false
+        }
+        // No window left — allow WindowGroup to open a single new one.
+        sender.activate(ignoringOtherApps: true)
+        return true
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -50,21 +62,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.adoptClipboardIfEmpty()
     }
 
-    private func showMainWindow(in app: NSApplication) {
-        let windows = mainWindows(in: app)
-        if let main = windows.first {
-            main.makeKeyAndOrderFront(nil)
-            destroyDuplicates(windows.dropFirst())
-        }
-        app.activate(ignoringOtherApps: true)
-    }
-
     private func collapseDuplicateWindows() {
-        let windows = mainWindows(in: NSApp)
+        let windows = mainWindows(in: NSApp).filter(\.isVisible)
         guard windows.count > 1 else { return }
-        if let visible = windows.first(where: \.isVisible) ?? windows.first {
-            visible.makeKeyAndOrderFront(nil)
-            destroyDuplicates(windows.filter { $0 !== visible })
+        let keep = windows[0]
+        keep.makeKeyAndOrderFront(nil)
+        for duplicate in windows.dropFirst() {
+            duplicate.close()
         }
     }
 
@@ -75,39 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 && (window.styleMask.contains(.titled) || window.styleMask.contains(.fullSizeContentView))
         }
     }
-
-    private func destroyDuplicates<S: Sequence>(_ windows: S) where S.Element == NSWindow {
-        for window in windows {
-            WindowCloser.shared.allowDestroy = true
-            window.delegate = nil
-            window.close()
-            WindowCloser.shared.allowDestroy = false
-        }
-    }
 }
 
-final class WindowCloser: NSObject, NSWindowDelegate {
-    static let shared = WindowCloser()
-    var allowDestroy = false
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if allowDestroy { return true }
-        if sender.styleMask.contains(.fullScreen) {
-            sender.toggleFullScreen(nil)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                sender.orderOut(nil)
-            }
-            return false
-        }
-        // Hide instead of destroy so Dock reopen can reuse this window.
-        sender.orderOut(nil)
-        return false
-    }
-}
-
+/// Styles the SwiftUI window without replacing its close behavior.
 struct WindowConfigurator: NSViewRepresentable {
-    var closer: WindowCloser
-
     final class Coordinator {
         var didConfigure = false
     }
@@ -126,34 +101,30 @@ struct WindowConfigurator: NSViewRepresentable {
 
     private func apply(_ view: NSView, coordinator: Coordinator) {
         guard let window = view.window else { return }
-        if !coordinator.didConfigure {
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-            window.isMovableByWindowBackground = true
-            window.backgroundColor = .windowBackgroundColor
-            window.isRestorable = false
-            window.tabbingMode = .disallowed
-            window.minSize = NSSize(width: 440, height: 660)
-            window.collectionBehavior.insert([.fullScreenPrimary, .managed])
-            if !window.styleMask.contains(.resizable) {
-                window.styleMask.insert(.resizable)
-            }
-            if !window.styleMask.contains(.fullSizeContentView) {
-                window.styleMask.insert(.fullSizeContentView)
-            }
-            window.standardWindowButton(.zoomButton)?.isEnabled = true
-            if let screen = NSScreen.main {
-                let size = NSSize(width: 440, height: 680)
-                let origin = NSPoint(
-                    x: screen.visibleFrame.midX - size.width / 2,
-                    y: screen.visibleFrame.midY - size.height / 2
-                )
-                window.setFrame(NSRect(origin: origin, size: size), display: true)
-            }
-            coordinator.didConfigure = true
+        guard !coordinator.didConfigure else { return }
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = .windowBackgroundColor
+        window.isRestorable = false
+        window.tabbingMode = .disallowed
+        window.minSize = NSSize(width: 440, height: 660)
+        window.collectionBehavior.insert([.fullScreenPrimary, .managed])
+        if !window.styleMask.contains(.resizable) {
+            window.styleMask.insert(.resizable)
         }
-        if window.delegate !== closer {
-            window.delegate = closer
+        if !window.styleMask.contains(.fullSizeContentView) {
+            window.styleMask.insert(.fullSizeContentView)
         }
+        window.standardWindowButton(.zoomButton)?.isEnabled = true
+        if let screen = NSScreen.main {
+            let size = NSSize(width: 440, height: 680)
+            let origin = NSPoint(
+                x: screen.visibleFrame.midX - size.width / 2,
+                y: screen.visibleFrame.midY - size.height / 2
+            )
+            window.setFrame(NSRect(origin: origin, size: size), display: true)
+        }
+        coordinator.didConfigure = true
     }
 }

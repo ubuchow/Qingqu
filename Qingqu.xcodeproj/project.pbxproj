@@ -8,17 +8,23 @@
 
 /* Begin PBXBuildFile section */
 		2C6059D821920F1C58E808A2 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712BEF055EFC3BC5BA5ADFC5 /* AppModel.swift */; };
+		31DE454A2962C7A4F2B1B5F4 /* 方正小标宋简体.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D48F0BACAFCA3C28499DF4E1 /* 方正小标宋简体.ttf */; };
 		3AB6F91F7C01B38B9E8D007C /* QingquApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63E92E83FFD380AAD1DF980 /* QingquApp.swift */; };
+		60C55C8971C67D26D42C46B2 /* AppFonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D47E28FDD10530677B75DEC9 /* AppFonts.swift */; };
 		A64BF1A2FDC06FED206941D2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C8EDDD0ED6713D950AFC5DCE /* Assets.xcassets */; };
+		AD333C90219252DFBC501DC0 /* 华文中宋.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 56394E567E0565045DF9A07B /* 华文中宋.ttf */; };
 		BDB6D47B23A8FF1AFA511798 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C31F616B48A0987A67BCB8 /* ContentView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		059E7094B7197925083AC1EE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		42C31F616B48A0987A67BCB8 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		56394E567E0565045DF9A07B /* 华文中宋.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "华文中宋.ttf"; sourceTree = "<group>"; };
 		712BEF055EFC3BC5BA5ADFC5 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		B63E92E83FFD380AAD1DF980 /* QingquApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QingquApp.swift; sourceTree = "<group>"; };
 		C8EDDD0ED6713D950AFC5DCE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D47E28FDD10530677B75DEC9 /* AppFonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFonts.swift; sourceTree = "<group>"; };
+		D48F0BACAFCA3C28499DF4E1 /* 方正小标宋简体.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "方正小标宋简体.ttf"; sourceTree = "<group>"; };
 		DD7DC2EE26F99D93D4E84CE4 /* Qingqu.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Qingqu.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -42,6 +48,7 @@
 		9AA171B693A20CC9FE2FB67A /* App */ = {
 			isa = PBXGroup;
 			children = (
+				D47E28FDD10530677B75DEC9 /* AppFonts.swift */,
 				712BEF055EFC3BC5BA5ADFC5 /* AppModel.swift */,
 				B63E92E83FFD380AAD1DF980 /* QingquApp.swift */,
 			);
@@ -71,8 +78,18 @@
 			children = (
 				C8EDDD0ED6713D950AFC5DCE /* Assets.xcassets */,
 				059E7094B7197925083AC1EE /* Info.plist */,
+				F03A359FCB505DD8F6C1123A /* Fonts */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		F03A359FCB505DD8F6C1123A /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				56394E567E0565045DF9A07B /* 华文中宋.ttf */,
+				D48F0BACAFCA3C28499DF4E1 /* 方正小标宋简体.ttf */,
+			);
+			path = Fonts;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -136,6 +153,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A64BF1A2FDC06FED206941D2 /* Assets.xcassets in Resources */,
+				AD333C90219252DFBC501DC0 /* 华文中宋.ttf in Resources */,
+				31DE454A2962C7A4F2B1B5F4 /* 方正小标宋简体.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,6 +165,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				60C55C8971C67D26D42C46B2 /* AppFonts.swift in Sources */,
 				2C6059D821920F1C58E808A2 /* AppModel.swift in Sources */,
 				BDB6D47B23A8FF1AFA511798 /* ContentView.swift in Sources */,
 				3AB6F91F7C01B38B9E8D007C /* QingquApp.swift in Sources */,

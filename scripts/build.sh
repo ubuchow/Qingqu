@@ -3,6 +3,30 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Bundle Chinese fonts from local machine (not committed to git).
+FONT_DIR="$ROOT/Qingqu/Resources/Fonts"
+mkdir -p "$FONT_DIR"
+copy_font() {
+  local dest="$1"; shift
+  for src in "$@"; do
+    if [[ -f "$src" ]]; then
+      cp -f "$src" "$dest"
+      return 0
+    fi
+  done
+  return 1
+}
+copy_font "$FONT_DIR/华文中宋.ttf" \
+  "$HOME/Library/Fonts/华文中宋.ttf" \
+  "$HOME/Library/Fonts/STZhongsong.ttf" \
+  "$HOME/tachikoma-ui/static/assets/fonts/STZhongsong.ttf" \
+  || echo "warning: 华文中宋 not found; UI will fall back to system font" >&2
+copy_font "$FONT_DIR/方正小标宋简体.ttf" \
+  "$HOME/tachikoma-ui/static/assets/fonts/FZXiaoBiaoSong.ttf" \
+  "$HOME/Library/Fonts/方正小标宋简体.ttf" \
+  "$HOME/Library/Fonts/FZXiaoBiaoSong.ttf" \
+  || echo "warning: 方正小标宋简体 not found; title will fall back" >&2
+
 ICONSET="$ROOT/Qingqu/Resources/Assets.xcassets/AppIcon.appiconset"
 mkdir -p "$ICONSET"
 swift "$ROOT/scripts/make-app-icon.swift" "$ICONSET/icon_1024.png"

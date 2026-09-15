@@ -28,6 +28,7 @@ struct ContentView: View {
                 Spacer(minLength: 24)
                 footer
             }
+            .font(AppFonts.body(13))
             .frame(width: 392)
             .padding(.horizontal, 24)
             .padding(.top, 36)
@@ -36,7 +37,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 440, minHeight: 660)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(WindowConfigurator(closer: WindowCloser.shared).frame(width: 0, height: 0))
+        .background(WindowConfigurator().frame(width: 0, height: 0))
         .onDrop(of: [UTType.url, UTType.plainText, UTType.utf8PlainText], isTargeted: $dropTargeted) { providers in
             model.handleDrop(providers)
         }
@@ -77,10 +78,10 @@ struct ContentView: View {
             }
             VStack(spacing: 4) {
                 Text(model.heroTitle)
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .font(AppFonts.title(24))
                     .foregroundStyle(.primary)
                 Text(model.heroSubtitle)
-                    .font(.system(size: 12.5, weight: .regular))
+                    .font(AppFonts.body(13))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -98,12 +99,12 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             TextField("粘贴视频链接", text: $model.urlText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13.5))
+                .font(AppFonts.body(14))
                 .disableAutocorrection(true)
                 .onSubmit { if model.canDownload { model.start() } }
             if model.urlText.isEmpty {
                 Button("粘贴") { model.pasteFromClipboard() }
-                    .font(.system(size: 12, weight: .medium))
+                    .font(AppFonts.body(12))
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
             } else if model.phase != .running {
@@ -135,7 +136,7 @@ struct ContentView: View {
         HStack(spacing: 8) {
             if let site = model.siteLabel {
                 Label(site, systemImage: "play.rectangle.fill")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(AppFonts.body(11))
                     .foregroundStyle(.tertiary)
             }
             if model.isProbing {
@@ -143,7 +144,7 @@ struct ContentView: View {
                     .controlSize(.mini)
             } else if let note = model.probeNote {
                 Text(note)
-                    .font(.system(size: 11))
+                    .font(AppFonts.body(11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -218,7 +219,7 @@ struct ContentView: View {
 
             if let hint = model.cookiesHint, model.cookieBrowser == .none {
                 Text(hint)
-                    .font(.system(size: 11))
+                    .font(AppFonts.body(11))
                     .foregroundStyle(.orange.opacity(0.85))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 2)
@@ -235,11 +236,11 @@ struct ContentView: View {
     private func optionRow<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         HStack {
             Text(title)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(AppFonts.body(13))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 12)
             content()
-                .font(.system(size: 12.5, weight: .medium))
+                .font(AppFonts.body(13))
         }
         .frame(minHeight: 24)
     }
@@ -265,7 +266,7 @@ struct ContentView: View {
                             .font(.system(size: 9, weight: .bold))
                     }
                     Text(buttonTitle)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(AppFonts.body(15))
                 }
                 .foregroundStyle(buttonEnabled ? Color.white : Color.secondary)
                 .frame(maxWidth: .infinity)
@@ -282,16 +283,16 @@ struct ContentView: View {
         if model.phase == .success {
             Button("在访达中显示") { model.revealInFinder() }
                 .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
+                .font(AppFonts.body(12))
                 .foregroundStyle(.secondary)
         } else if !model.missingTools.isEmpty {
             Button("复制安装命令") { model.copyInstallCommand() }
                 .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
+                .font(AppFonts.body(12))
                 .foregroundStyle(.secondary)
         } else {
             Text(model.formatSummary)
-                .font(.system(size: 11))
+                .font(AppFonts.body(11))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -314,7 +315,7 @@ struct ContentView: View {
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(.quaternary)
                     }
-                    .font(.system(size: 11.5))
+                    .font(AppFonts.body(12))
                     .foregroundStyle(.secondary)
                     .contentShape(Rectangle())
                 }
@@ -324,7 +325,7 @@ struct ContentView: View {
                 Spacer(minLength: 8)
 
                 Text("⌃⌘F 全屏")
-                    .font(.system(size: 10.5))
+                    .font(AppFonts.body(11))
                     .foregroundStyle(.quaternary)
             }
         }

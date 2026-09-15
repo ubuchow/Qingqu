@@ -28,3 +28,9 @@ Package.resolved
 # Local
 preview.png
 *.log
+
+# Commercial Chinese fonts — copy at build time, do not publish
+Qingqu/Resources/Fonts/
+Qingqu/Resources/*.ttf
+Qingqu/Resources/*.otf
+Qingqu/Resources/*.ttc

@@ -1,6 +1,5 @@
 import AppKit
 import CoreText
-import SwiftUI
 
 enum AppFonts {
     /// 华文中宋（本机安装文件的 PostScript 名为 JBHGZCS）
@@ -37,20 +36,6 @@ enum AppFonts {
         }
     }
 
-    static func body(_ size: CGFloat) -> Font {
-        if let name = resolve(bodyCandidates) {
-            return .custom(name, size: size)
-        }
-        return .system(size: size)
-    }
-
-    static func title(_ size: CGFloat) -> Font {
-        if let name = resolve(titleCandidates) {
-            return .custom(name, size: size)
-        }
-        return .system(size: size, weight: .semibold, design: .serif)
-    }
-
     static func nsBody(_ size: CGFloat) -> NSFont {
         if let name = resolve(bodyCandidates), let font = NSFont(name: name, size: size) {
             return font
@@ -65,13 +50,17 @@ enum AppFonts {
         return NSFont.systemFont(ofSize: size, weight: .semibold)
     }
 
+    static func times(_ size: CGFloat, italic: Bool = false) -> NSFont {
+        let name = italic ? "Times-Italic" : "Times-Roman"
+        return NSFont(name: name, size: size) ?? NSFont.systemFont(ofSize: size)
+    }
+
     private static func resolve(_ candidates: [String]) -> String? {
         for name in candidates {
             if NSFont(name: name, size: 16) != nil {
                 return name
             }
         }
-        // Last resort: scan registered families for a partial match.
         let families = NSFontManager.shared.availableFontFamilies
         for family in families {
             for candidate in candidates where family == candidate || family.contains(candidate) || candidate.contains(family) {

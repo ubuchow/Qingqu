@@ -3,6 +3,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Keep the app's designated requirement stable so macOS retains browser-data consent.
+SIGN_ID="${QINGQU_SIGNING_IDENTITY:-}"
+if [[ -z "$SIGN_ID" ]]; then
+  SIGN_ID="$(security find-identity -v -p codesigning | awk '/Apple Development:/ {print $2; exit}')"
+fi
+if [[ -z "$SIGN_ID" || "$SIGN_ID" == "-" ]]; then
+  echo "A stable code-signing certificate is required. Set QINGQU_SIGNING_IDENTITY to an installed identity." >&2
+  exit 1
+fi
+
 # Bundle Chinese fonts from local machine (not committed to git).
 FONT_DIR="$ROOT/Qingqu/Resources/Fonts"
 mkdir -p "$FONT_DIR"
@@ -52,9 +62,10 @@ xcodebuild \
   -derivedDataPath "$DEST" \
   -destination 'platform=macOS' \
   build \
-  CODE_SIGN_IDENTITY="-" \
+  CODE_SIGN_STYLE=Manual \
+  CODE_SIGN_IDENTITY="$SIGN_ID" \
   CODE_SIGNING_ALLOWED=YES \
-  CODE_SIGNING_REQUIRED=NO
+  CODE_SIGNING_REQUIRED=YES
 
 APP="$(find "$DEST/Build/Products" -name '轻取.app' -maxdepth 3 | head -n 1)"
 if [[ -z "$APP" ]]; then
@@ -72,7 +83,8 @@ INSTALL_DIR="$HOME/Applications"
 mkdir -p "$INSTALL_DIR"
 rm -rf "$INSTALL_DIR/轻取.app"
 cp -R "$APP" "$INSTALL_DIR/轻取.app"
-codesign --force --deep --sign - "$INSTALL_DIR/轻取.app" >/dev/null 2>&1 || true
+codesign --force --deep --sign "$SIGN_ID" "$INSTALL_DIR/轻取.app"
+codesign --verify --strict "$INSTALL_DIR/轻取.app"
 
 echo "APP=$INSTALL_DIR/轻取.app"
 du -sh "$INSTALL_DIR/轻取.app"

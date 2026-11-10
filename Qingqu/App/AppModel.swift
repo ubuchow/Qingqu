@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import Observation
 import UniformTypeIdentifiers
@@ -11,12 +12,13 @@ enum MediaMode: String, CaseIterable, Identifiable {
 }
 
 enum VideoQuality: String, CaseIterable, Identifiable {
-    case auto, q2160, q1080, q720, q480, q360
+    case auto, q2160, q1440, q1080, q720, q480, q360
     var id: String { rawValue }
     var title: String {
         switch self {
         case .auto: return "自动最佳"
         case .q2160: return "4K · 2160p"
+        case .q1440: return "1440p"
         case .q1080: return "1080p"
         case .q720: return "720p"
         case .q480: return "480p"
@@ -27,10 +29,24 @@ enum VideoQuality: String, CaseIterable, Identifiable {
         switch self {
         case .auto: return nil
         case .q2160: return 2160
+        case .q1440: return 1440
         case .q1080: return 1080
         case .q720: return 720
         case .q480: return 480
         case .q360: return 360
+        }
+    }
+
+    /// Short label used by the paper UI pills.
+    var pill: String {
+        switch self {
+        case .auto: return "自动"
+        case .q2160: return "2160"
+        case .q1440: return "1440"
+        case .q1080: return "1080"
+        case .q720: return "720"
+        case .q480: return "480"
+        case .q360: return "360"
         }
     }
 }
@@ -82,17 +98,17 @@ enum Phase: Equatable {
 }
 
 enum LinkParser {
+    private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
     static func extract(from raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if let url = URL(string: trimmed), isHTTP(url) { return url }
-        let types = NSTextCheckingResult.CheckingType.link.rawValue
-        guard let detector = try? NSDataDetector(types: types) else { return nil }
         let range = NSRange(trimmed.startIndex..., in: trimmed)
-        if let match = detector.firstMatch(in: trimmed, options: [], range: range),
+        if let match = detector?.firstMatch(in: trimmed, options: [], range: range),
            let url = match.url, isHTTP(url) {
             return url
         }
+        if let url = URL(string: trimmed), isHTTP(url) { return url }
         return nil
     }
 
@@ -130,6 +146,14 @@ enum LinkParser {
         }
         return nil
     }
+}
+
+struct RecentDownload: Codable, Identifiable, Equatable {
+    var id: String
+    var title: String
+    var spec: String
+    var path: String
+    var created: Date
 }
 
 struct Toolchain {
@@ -193,7 +217,7 @@ struct Toolchain {
 final class AppModel {
     var urlText = "" {
         didSet {
-            if urlText != oldValue {
+            if urlText != oldValue, phase != .running {
                 scheduleProbe()
             }
         }
@@ -218,6 +242,14 @@ final class AppModel {
     var probedTitle: String?
     var availableHeights: [Int] = []
     var probeNote: String?
+    var probeDuration: Double?
+    var probeFilesize: Int64?
+    var probeMaxHeight: Int?
+    var probeHDR = false
+    var thumbnail: NSImage?
+    var totalBytes: Int64?
+    var isPaused = false
+    var recents: [RecentDownload] = []
 
     var siteLabel: String? { LinkParser.siteName(for: urlText) }
     var cookiesHint: String? { LinkParser.needsCookiesHint(for: urlText) }
@@ -278,11 +310,57 @@ final class AppModel {
         return "\(q) · \(c) · 源最高 \(maxH)p"
     }
 
+    var previewDetail: String {
+        var parts: [String] = []
+        if let height = probeMaxHeight ?? availableHeights.first, height > 0 {
+            parts.append("最高 \(height >= 2000 ? "4K" : "\(height)p")")
+        }
+        if let bytes = probeFilesize, bytes > 0 {
+            parts.append("约 \(Self.compactBytes(bytes))")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var durationLabel: String? {
+        guard let seconds = probeDuration, seconds > 0 else { return nil }
+        let whole = Int(seconds.rounded())
+        if whole >= 3600 {
+            return String(format: "%d:%02d:%02d", whole / 3600, (whole % 3600) / 60, whole % 60)
+        }
+        return String(format: "%d:%02d", whole / 60, whole % 60)
+    }
+
+    var progressFractionText: String {
+        guard let total = totalBytes, total > 0 else { return "" }
+        let done = Int64((Double(total) * min(max(progress, 0), 1)).rounded())
+        return "\(Self.compactBytes(done)) / \(Self.compactBytes(total))"
+    }
+
+    var progressMetaText: String {
+        var parts: [String] = []
+        if !speedText.isEmpty { parts.append(speedText) }
+        if !etaText.isEmpty { parts.append("剩余 \(etaText)") }
+        return parts.joined(separator: " · ")
+    }
+
+    var captionLine: String {
+        if mode == .audio {
+            return "支持常见视频网站的分享链接 · 仅音频 · \(audioFormat.title)"
+        }
+        let height = quality.maxHeight
+        let qualityLabel = height == nil ? "自动" : (height! >= 2000 ? "4K" : "\(height!)p")
+        let containerLabel = container == .keep ? "原格式" : container.title
+        let prefix = (quality == .q1080 && container == .mp4) ? "默认 " : ""
+        return "支持常见视频网站的分享链接 · \(prefix)\(qualityLabel) · \(containerLabel)"
+    }
+
     @ObservationIgnored private var process: Process?
     @ObservationIgnored private var lineBuffer = ""
     @ObservationIgnored private var lastFilePath: String?
     @ObservationIgnored private var probeTask: Task<Void, Never>?
     @ObservationIgnored private var probeToken = 0
+    @ObservationIgnored private var thumbnailTask: Task<Void, Never>?
+    @ObservationIgnored private var thumbnailURL: String?
 
     init() {
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
@@ -296,6 +374,10 @@ final class AppModel {
         if let raw = UserDefaults.standard.string(forKey: "cookieBrowser"),
            let browser = CookieBrowser(rawValue: raw) {
             cookieBrowser = browser
+        }
+        if let data = UserDefaults.standard.data(forKey: "recentDownloads"),
+           let items = try? JSONDecoder().decode([RecentDownload].self, from: data) {
+            recents = items
         }
         refreshTools()
     }
@@ -383,17 +465,45 @@ final class AppModel {
         }
     }
 
-    func scheduleProbe() {
+    private func cancelPreviewRequests() {
+        probeToken &+= 1
         probeTask?.cancel()
+        probeTask = nil
+        thumbnailTask?.cancel()
+        thumbnailTask = nil
+        isProbing = false
+    }
+
+    func suspendPreview() {
+        cancelPreviewRequests()
+        thumbnail = nil
+    }
+
+    func resumePreview() {
+        guard LinkParser.extract(from: urlText) != nil else { return }
+        if probedTitle == nil, phase != .running {
+            scheduleProbe()
+        } else if thumbnail == nil, let thumbnailURL {
+            loadThumbnail(thumbnailURL, token: probeToken)
+        }
+    }
+
+    func scheduleProbe() {
+        cancelPreviewRequests()
         probedTitle = nil
         availableHeights = []
         probeNote = nil
+        probeDuration = nil
+        probeFilesize = nil
+        probeMaxHeight = nil
+        probeHDR = false
+        thumbnail = nil
+        thumbnailURL = nil
         guard LinkParser.extract(from: urlText) != nil, missingTools.isEmpty else {
             isProbing = false
             return
         }
         isProbing = true
-        probeToken += 1
         let token = probeToken
         let urlString = urlText
         let cookies = cookieBrowser
@@ -429,7 +539,7 @@ final class AppModel {
             path: tools.pathEnvironment
         )
 
-        guard token == probeToken else { return }
+        guard token == probeToken, !Task.isCancelled else { return }
         isProbing = false
 
         guard result.status == 0,
@@ -441,19 +551,34 @@ final class AppModel {
                     ? "未能解析小红书视频，可换 Cookie 浏览器或更新 yt-dlp"
                     : "未能识别可用清晰度"
             } else if !err.isEmpty {
-                probeNote = "识别失败，仍可尝试直接下载"
+                probeNote = Self.humanize(err)
             }
             return
         }
 
         probedTitle = (json["title"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let seconds = Self.doubleValue(json["duration"]), seconds > 0 {
+            probeDuration = seconds
+        }
         let formats = json["formats"] as? [[String: Any]] ?? []
         let heights = Set(formats.compactMap { $0["height"] as? Int }.filter { $0 > 0 })
         availableHeights = heights.sorted(by: >)
+        probeMaxHeight = availableHeights.first
+        probeHDR = formats.contains { item in
+            let range = (item["dynamic_range"] as? String)?.lowercased() ?? ""
+            return range.contains("hdr") || range == "hlg" || range == "pq" || range == "dv"
+        }
+        probeFilesize = Self.int64Value(json["filesize"]) ?? Self.int64Value(json["filesize_approx"])
+        if probeFilesize == nil {
+            let sized = formats.compactMap { Self.int64Value($0["filesize"]) ?? Self.int64Value($0["filesize_approx"]) }
+            probeFilesize = sized.max()
+        }
+        if let thumb = json["thumbnail"] as? String {
+            loadThumbnail(thumb, token: token)
+        }
         if let maxH = availableHeights.first {
             probeNote = "可下载清晰度至 \(maxH)p"
-            // If current quality is higher than available, snap down
             if let qh = quality.maxHeight, qh > maxH {
                 quality = Self.nearestQuality(for: maxH)
             }
@@ -462,9 +587,32 @@ final class AppModel {
         }
     }
 
+    private func loadThumbnail(_ string: String, token: Int) {
+        guard let url = URL(string: string), url.scheme == "https" else { return }
+        thumbnailURL = string
+        thumbnailTask?.cancel()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        let session = URLSession(configuration: configuration)
+        thumbnailTask = Task { [weak self] in
+            defer {
+                session.finishTasksAndInvalidate()
+                if self?.probeToken == token { self?.thumbnailTask = nil }
+            }
+            do {
+                let (data, response) = try await session.data(from: url)
+                guard !Task.isCancelled,
+                      let http = response as? HTTPURLResponse, http.statusCode == 200,
+                      let image = NSImage(data: data), image.isValid,
+                      let self, self.probeToken == token else { return }
+                self.thumbnail = image
+            } catch {}
+        }
+    }
+
     private static func nearestQuality(for height: Int) -> VideoQuality {
-        let ordered: [VideoQuality] = [.q2160, .q1080, .q720, .q480, .q360]
-        return ordered.first(where: { ($0.maxHeight ?? 0) <= height }) ?? .auto
+        let ordered: [VideoQuality] = [.q2160, .q1440, .q1080, .q720, .q480]
+        return ordered.first(where: { ($0.maxHeight ?? 0) <= height }) ?? .q480
     }
 
     func start() {
@@ -485,8 +633,9 @@ final class AppModel {
             return
         }
 
-        urlText = url.absoluteString
+        cancelPreviewRequests()
         phase = .running
+        urlText = url.absoluteString
         progress = 0
         speedText = ""
         etaText = ""
@@ -497,6 +646,8 @@ final class AppModel {
         errorMessage = nil
         lastFilePath = nil
         lineBuffer = ""
+        totalBytes = nil
+        isPaused = false
         NSApp.dockTile.badgeLabel = nil
 
         let outputTemplate = saveFolder
@@ -533,12 +684,14 @@ final class AppModel {
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = pipe
+        proc.standardInput = FileHandle.nullDevice
         let handle = pipe.fileHandleForReading
-        handle.readabilityHandler = { [weak self] file in
+        handle.readabilityHandler = { [weak self, weak proc] file in
             let data = file.availableData
             guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
             Task { @MainActor in
-                self?.ingest(chunk)
+                guard let self, let proc, self.process === proc else { return }
+                self.ingest(chunk)
             }
         }
 
@@ -546,8 +699,9 @@ final class AppModel {
             let status = finished.terminationStatus
             Task { @MainActor in
                 handle.readabilityHandler = nil
-                self?.process = nil
-                self?.finish(status: status)
+                guard let self, self.process === finished else { return }
+                self.process = nil
+                self.finish(status: status)
             }
         }
 
@@ -597,16 +751,50 @@ final class AppModel {
         case .keep:
             break
         }
+        if quality == .q2160 && probeHDR {
+            args += ["-S", "res,hdr"]
+        }
         return args
     }
 
+    func togglePause() {
+        guard phase == .running, let proc = process, proc.isRunning else { return }
+        if isPaused {
+            _ = kill(proc.processIdentifier, SIGCONT)
+            isPaused = false
+        } else {
+            _ = kill(proc.processIdentifier, SIGSTOP)
+            isPaused = true
+        }
+    }
+
     func cancel() {
-        process?.terminate()
+        if let proc = process {
+            if isPaused {
+                _ = kill(proc.processIdentifier, SIGCONT)
+            }
+            proc.terminate()
+        }
         process = nil
+        isPaused = false
         phase = .idle
         progress = 0
         statusText = ""
         NSApp.dockTile.badgeLabel = nil
+    }
+
+    func clearRecentDownloads() {
+        recents.removeAll()
+        UserDefaults.standard.removeObject(forKey: "recentDownloads")
+    }
+
+    func openRecent(_ item: RecentDownload) {
+        let url = URL(fileURLWithPath: item.path)
+        if FileManager.default.fileExists(atPath: item.path) {
+            NSWorkspace.shared.open(url)
+        } else {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+        }
     }
 
     func revealInFinder() {
@@ -631,6 +819,13 @@ final class AppModel {
         probedTitle = nil
         availableHeights = []
         probeNote = nil
+        probeDuration = nil
+        probeFilesize = nil
+        probeMaxHeight = nil
+        probeHDR = false
+        thumbnail = nil
+        totalBytes = nil
+        isPaused = false
         NSApp.dockTile.badgeLabel = nil
     }
 
@@ -692,24 +887,26 @@ final class AppModel {
         }
 
         guard line.contains("[download]"), line.contains("%") else { return }
-        let body = line.replacingOccurrences(of: "[download]", with: "")
-        let tokens = body.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        if let percentToken = tokens.first(where: { $0.hasSuffix("%") }),
-           let value = Double(percentToken.dropLast()) {
+        if let groups = Self.captureGroups(#"(\d+(?:\.\d+)?)%"#, in: line),
+           let value = Double(groups[1]) {
             progress = min(max(value / 100.0, 0), 1)
             let percent = Int((progress * 100).rounded())
             NSApp.dockTile.badgeLabel = percent > 0 && percent < 100 ? "\(percent)" : nil
         }
-        if let idx = tokens.firstIndex(of: "at"), idx + 1 < tokens.count {
-            speedText = tokens[idx + 1]
+        if let groups = Self.captureGroups(#"of\s+~?\s*(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB|B)\b"#, in: line),
+           let value = Double(groups[1]) {
+            totalBytes = Self.bytes(value, unit: groups[2])
         }
-        if let idx = tokens.firstIndex(of: "ETA"), idx + 1 < tokens.count {
-            etaText = tokens[idx + 1]
+        if let groups = Self.captureGroups(#"at\s+(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB|B)/s"#, in: line),
+           let value = Double(groups[1]) {
+            let perSecond = Self.bytes(value, unit: groups[2])
+            speedText = "\(Self.compactBytes(perSecond))/s"
         }
-        if !speedText.isEmpty {
-            statusText = [speedText, etaText.isEmpty ? nil : "剩余 \(etaText)"]
-                .compactMap { $0 }
-                .joined(separator: " · ")
+        if let groups = Self.captureGroups(#"ETA\s+(\d+:\d+(?::\d+)?)"#, in: line) {
+            etaText = Self.chineseETA(groups[1])
+        }
+        if progress > 0, progress < 1, statusText == "正在解析视频…" {
+            statusText = "正在下载"
         }
     }
 
@@ -729,14 +926,19 @@ final class AppModel {
         }
 
         if status == 0 {
+            var bytes: Int64?
             if let path = lastFilePath {
                 let url = URL(fileURLWithPath: path)
                 outputURL = url
                 filename = url.lastPathComponent
                 if let size = try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64 {
-                    fileSizeText = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+                    bytes = size
+                    fileSizeText = Self.compactBytes(size)
+                    totalBytes = totalBytes ?? size
                 }
             }
+            isPaused = false
+            recordRecent(bytes: bytes ?? totalBytes)
             phase = .success
             progress = 1
             NSApp.requestUserAttention(.informationalRequest)
@@ -744,6 +946,7 @@ final class AppModel {
         }
 
         if phase == .idle { return }
+        isPaused = false
         phase = .failed
         progress = 0
         if errorMessage == nil {
@@ -774,6 +977,117 @@ final class AppModel {
         )
     }
 
+    private func recordRecent(bytes: Int64?) {
+        guard let url = outputURL else { return }
+        let trimmedTitle = probedTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = trimmedTitle.isEmpty ? url.deletingPathExtension().lastPathComponent : trimmedTitle
+        let item = RecentDownload(
+            id: url.path,
+            title: title,
+            spec: recentSpec(bytes: bytes),
+            path: url.path,
+            created: Date()
+        )
+        recents.removeAll { $0.path == item.path }
+        recents.insert(item, at: 0)
+        if recents.count > 12 {
+            recents = Array(recents.prefix(12))
+        }
+        if let data = try? JSONEncoder().encode(recents) {
+            UserDefaults.standard.set(data, forKey: "recentDownloads")
+        }
+    }
+
+    private func recentSpec(bytes: Int64?) -> String {
+        if mode == .audio {
+            guard let bytes else { return audioFormat.title }
+            return "\(audioFormat.title) · \(Self.compactBytes(bytes))"
+        }
+        let qualityLabel: String
+        if let height = quality.maxHeight {
+            qualityLabel = height >= 2000 ? "4K" : "\(height)p"
+        } else if let height = probeMaxHeight {
+            qualityLabel = height >= 2000 ? "4K" : "\(height)p"
+        } else {
+            qualityLabel = "自动"
+        }
+        let containerLabel = container == .keep ? "原格式" : container.title
+        guard let bytes else { return "\(qualityLabel) · \(containerLabel)" }
+        return "\(qualityLabel) · \(containerLabel) · \(Self.compactBytes(bytes))"
+    }
+
+    private static func bytes(_ value: Double, unit: String) -> Int64 {
+        let scale: Double
+        switch unit {
+        case "GiB": scale = 1024 * 1024 * 1024
+        case "MiB": scale = 1024 * 1024
+        case "KiB": scale = 1024
+        default: scale = 1
+        }
+        return Int64((value * scale).rounded())
+    }
+
+    static func compactBytes(_ bytes: Int64) -> String {
+        let value = Double(bytes)
+        if value >= 1_000_000_000 {
+            let gb = value / 1_000_000_000
+            return gb >= 10 ? String(format: "%.0f GB", gb) : String(format: "%.1f GB", gb)
+        }
+        if value >= 1_000_000 {
+            let mb = value / 1_000_000
+            if mb >= 100 { return "\(Int(mb.rounded())) MB" }
+            if mb >= 10 { return String(format: "%.0f MB", mb) }
+            return String(format: "%.1f MB", mb)
+        }
+        if value >= 1_000 {
+            let kb = value / 1_000
+            return kb >= 10 ? String(format: "%.0f KB", kb) : String(format: "%.1f KB", kb)
+        }
+        return "\(bytes) B"
+    }
+
+    private static func chineseETA(_ raw: String) -> String {
+        let parts = raw.split(separator: ":").compactMap { Int($0) }
+        switch parts.count {
+        case 2:
+            let minutes = parts[0]
+            let seconds = parts[1]
+            if minutes <= 0 { return "\(seconds) 秒" }
+            if seconds == 0 { return "\(minutes) 分" }
+            return "\(minutes) 分 \(seconds) 秒"
+        case 3:
+            if parts[1] == 0 { return "\(parts[0]) 小时" }
+            return "\(parts[0]) 小时 \(parts[1]) 分"
+        default:
+            return raw
+        }
+    }
+
+    private static func captureGroups(_ pattern: String, in text: String) -> [String]? {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = expression.firstMatch(in: text, options: [], range: range) else { return nil }
+        return (0..<match.numberOfRanges).map { index in
+            guard let slice = Range(match.range(at: index), in: text) else { return "" }
+            return String(text[slice])
+        }
+    }
+
+    private static func doubleValue(_ any: Any?) -> Double? {
+        if let value = any as? Double { return value }
+        if let value = any as? Int { return Double(value) }
+        if let value = any as? NSNumber { return value.doubleValue }
+        return nil
+    }
+
+    private static func int64Value(_ any: Any?) -> Int64? {
+        if let value = any as? Int64 { return value }
+        if let value = any as? Int { return Int64(value) }
+        if let value = any as? Double { return Int64(value) }
+        if let value = any as? NSNumber { return value.int64Value }
+        return nil
+    }
+
     private func value(after prefix: String, in line: String) -> String? {
         guard line.contains(prefix), let range = line.range(of: prefix) else { return nil }
         return String(line[range.upperBound...])
@@ -785,6 +1099,9 @@ final class AppModel {
         if text.localizedCaseInsensitiveContains("No video formats") {
             return "未找到可下载的视频流（小红书常需登录 Cookie）"
         }
+        if text.localizedCaseInsensitiveContains("could not find") && text.localizedCaseInsensitiveContains("cookies database") {
+            return "未找到浏览器 Cookie，或访问被 macOS 阻止。请确认浏览器已登录并允许轻取访问其数据。"
+        }
         if text.localizedCaseInsensitiveContains("private") { return "视频是私密的，无法下载" }
         if text.localizedCaseInsensitiveContains("login") || text.contains("cookies") {
             return "该视频需要登录，请在下方选择浏览器 Cookie"
@@ -793,9 +1110,6 @@ final class AppModel {
         if text.localizedCaseInsensitiveContains("ffmpeg") { return "缺少 ffmpeg，请执行 brew install ffmpeg" }
         if text.contains("Unable to extract") { return "无法解析该视频，请检查链接" }
         if text.contains("Video unavailable") { return "视频不可用" }
-        if text.localizedCaseInsensitiveContains("could not find") && text.contains("cookies") {
-            return "未找到该浏览器的 Cookie，请换一个已登录的浏览器"
-        }
         if text.count > 90 { return String(text.prefix(90)) + "…" }
         return text
     }
@@ -806,30 +1120,79 @@ final class AppModel {
         var stderr: String
     }
 
+    private final class CaptureBox: @unchecked Sendable {
+        var stdout = ""
+        var stderr = ""
+        private let lock = NSLock()
+        private var process: Process?
+        private var cancelled = false
+
+        func launch(_ process: Process) throws -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !cancelled else { return false }
+            try process.run()
+            self.process = process
+            return true
+        }
+
+        func cancel() {
+            lock.lock()
+            defer { lock.unlock() }
+            cancelled = true
+            if let process, process.isRunning { process.terminate() }
+        }
+
+        func finished() {
+            lock.lock()
+            process = nil
+            lock.unlock()
+        }
+    }
+
     private static func runCapture(executable: String, arguments: [String], path: String) async -> CaptureResult {
-        await withCheckedContinuation { cont in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: executable)
-                proc.arguments = arguments
-                var env = ProcessInfo.processInfo.environment
-                env["PATH"] = path
-                env["PYTHONUNBUFFERED"] = "1"
-                proc.environment = env
-                let out = Pipe()
-                let err = Pipe()
-                proc.standardOutput = out
-                proc.standardError = err
-                do {
-                    try proc.run()
+        let box = CaptureBox()
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { cont in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let proc = Process()
+                    proc.executableURL = URL(fileURLWithPath: executable)
+                    proc.arguments = arguments
+                    var env = ProcessInfo.processInfo.environment
+                    env["PATH"] = path
+                    env["PYTHONUNBUFFERED"] = "1"
+                    proc.environment = env
+                    proc.standardInput = FileHandle.nullDevice
+                    let out = Pipe()
+                    let err = Pipe()
+                    proc.standardOutput = out
+                    proc.standardError = err
+                    do {
+                        guard try box.launch(proc) else {
+                            cont.resume(returning: CaptureResult(status: -1, stdout: "", stderr: "已取消"))
+                            return
+                        }
+                    } catch {
+                        cont.resume(returning: CaptureResult(status: -1, stdout: "", stderr: error.localizedDescription))
+                        return
+                    }
+                    let group = DispatchGroup()
+                    group.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        box.stdout = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                        group.leave()
+                    }
+                    group.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        box.stderr = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                        group.leave()
+                    }
                     proc.waitUntilExit()
-                    let stdout = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    let stderr = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    cont.resume(returning: CaptureResult(status: proc.terminationStatus, stdout: stdout, stderr: stderr))
-                } catch {
-                    cont.resume(returning: CaptureResult(status: -1, stdout: "", stderr: error.localizedDescription))
+                    group.wait()
+                    box.finished()
+                    cont.resume(returning: CaptureResult(status: proc.terminationStatus, stdout: box.stdout, stderr: box.stderr))
                 }
             }
-        }
+        }, onCancel: { box.cancel() })
     }
 }
